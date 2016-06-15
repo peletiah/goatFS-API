@@ -1,0 +1,3 @@
+[run]
+source = goatfs_api
+omit = goatfs_api/test*
