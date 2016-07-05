@@ -22,6 +22,11 @@ def get_route(request):
     route = request.dbsession.query(Route).filter(Route.id==route_id).one()
     return route.reprJSON()
 
+@route.post()
+def post_route(request):
+    user = request.user
+    log.debug('User in ROUTE-post')
+    return 'asdf'
 
 route_extension = Service(name='route_extension', path='/route/extension/{extension}', description="Sequence and Targets of Route specified by extension", permission="edit",
 cors_policy = {'origins': ('*',), 'credentials': True})

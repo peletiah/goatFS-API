@@ -272,7 +272,7 @@ class Route(Resource):
     sequences = relationship('Sequence', order_by='asc(Sequence.sequence)')
 
     def reprJSON(self):
-        sequences = [sequence.reprJSON() for sequence in self.sequences]
+        sequences = {"sequences" : [sequence.reprJSON() for sequence in self.sequences]}
         return sequences
 
 
