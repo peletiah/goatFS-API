@@ -20,6 +20,7 @@ def get_route(request):
     log.debug('User in ROUTE-view: {0}'.format(user))
     route_id = int(request.matchdict['id'])
     route = request.dbsession.query(Route).filter(Route.id==route_id).one()
+    log.debug('Route found {0}'.format(route.id))
     return route.reprJSON()
 
 @route.post()

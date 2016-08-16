@@ -71,7 +71,6 @@ class ResourceFactory(object):
         self.__acl__ = []
         rid = request.matchdict.get("resource_id")
 
-        log.debug('JJJJJJJAAAAAAAAAAAAAAAAAAAAAAAA:{0}'.format(rid))
         if not rid:
             raise HTTPBadRequest()
         self.resource = Resource.by_resource_id(rid,db_session=request.dbsession)

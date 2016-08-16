@@ -18,7 +18,7 @@ dist/
 downloads/
 eggs/
 lib/
-!auth/lib
+!goatfs_api/lib
 lib64/
 parts/
 sdist/
