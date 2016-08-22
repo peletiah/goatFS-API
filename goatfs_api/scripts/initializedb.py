@@ -26,7 +26,6 @@ from ..models import (
         Route,
         Sequence,
         Action,
-        ActionApplication,
         ApplicationCatalog
         )
 

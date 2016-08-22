@@ -42,7 +42,8 @@ from zope.sqlalchemy import ZopeTransactionExtension
 from passlib.hash import bcrypt
 
 import ziggurat_foundations.models
-from ziggurat_foundations.models.base import BaseModel
+from ziggurat_foundations.models.base import BaseModel, get_db_session
+from ziggurat_foundations.models.services.resource import ResourceService
 from ziggurat_foundations.models.external_identity import ExternalIdentityMixin
 from ziggurat_foundations.models.group import GroupMixin
 from ziggurat_foundations.models.group_permission import GroupPermissionMixin
@@ -80,7 +81,16 @@ class GroupResourcePermission(GroupResourcePermissionMixin, Base):
     pass
 
 class Resource(ResourceMixin, Base):
-    pass
+    def by_resource_name(name,db_session=None):
+        db_session = get_db_session(db_session)
+        try:
+            resource = db_session.query(Resource).filter(Resource.resource_name==name).one()
+            log.debug(resource)
+            return ResourceService.by_resource_id(resource_id=resource.resource_id,
+                                                  db_session=db_session)
+        except Exception as e:
+            log.debug('Error retrieving resource by name, {0}'.format(e))
+            raise
 
 class UserPermission(UserPermissionMixin, Base):
     pass
@@ -251,7 +261,7 @@ class Extension(Base):
     extension = Column(types.UnicodeText, unique=True)
     domain_id = Column(Integer, ForeignKey('domain.id', onupdate='CASCADE', \
                             ondelete='CASCADE'))
-    routes = relationship('Route')
+    routes = relationship('Route', cascade='all, delete-orphan')
 
     def __init__(self, extension, domain_id):
         self.extension = extension
@@ -269,12 +279,19 @@ class Route(Resource):
                                                      ondelete='CASCADE')) 
     extension_id = Column(Integer, ForeignKey('extension.id', onupdate='CASCADE', \
                                                               ondelete='CASCADE'))
-    sequences = relationship('Sequence', order_by='asc(Sequence.sequence)')
+    sequences = relationship('Sequence', order_by='asc(Sequence.sequence)', cascade='all, delete-orphan')
 
     def reprJSON(self):
-        sequences = {"sequences" : [sequence.reprJSON() for sequence in self.sequences]}
-        return sequences
+        route = {"id":self.id, "sequences" : [sequence.reprJSON() for sequence in self.sequences]}
+        return route
 
+    def get_route_by_id(request, id):
+        try:
+            route = request.dbsession.query(Route).filter(Route.id==id).one()
+            return route
+        except Exception as e:
+            log.debug('Error retrieving route by id, {0}'.format(e))
+            raise
 
 class Sequence(Base):
     __tablename__ = 'sequence'
@@ -283,38 +300,57 @@ class Sequence(Base):
                                                       ondelete='CASCADE'))
     sequence = Column(Integer)
     timeout = Column(Integer, default=20)
-    action = relationship('Action', uselist=False, back_populates='sequence')
+    action = relationship('Action', uselist=False, back_populates='sequence', cascade='all, delete-orphan')
     __table_args__ = (
             UniqueConstraint('route_id', 'sequence', name='route_id_sequence_key'),
             {}
             )
 
+    def __init__(self, route_id, sequence, timeout):
+        self.route_id = route_id
+        self.sequence = sequence
+        self.timeout = timeout
+
     def reprJSON(self):
-        command = self.action.application.application_catalog.command
-        data = self.action.application.application_data
+        command = self.action.application_catalog.command
+        data = self.action.application_data
         return dict(data=data, command=command, sequence=self.sequence)
 
+    def add_sequence_from_json(request, route_id, sequence_json):
+        if 'timeout' not in sequence_json:
+            timeout = None
+        else:
+            timeout = sequence['timeout']
+        sequence = Sequence(route_id, sequence_json['sequence'], timeout)
+        application = ApplicationCatalog.get_id_by_command(request, sequence_json['command'])
+        request.dbsession.add(sequence)
+        request.dbsession.flush()
+        log.debug('SEQUENCE ID IS {0}'.format(sequence.id))
+        action = Action(sequence.id, application.id, sequence_json['data'], True)
+        request.dbsession.add(action)
+        return sequence
+
+
+
+        
 class Action(Base):
     __tablename__ = 'action'
     id = Column(Integer, primary_key=True)
     sequence_id = Column(Integer, ForeignKey('sequence.id', onupdate='CASCADE', \
                                                             ondelete='CASCADE'))
-    active = Column(types.Boolean, default=True)
-    sequence = relationship('Sequence')
-    application = relationship('ActionApplication', uselist=False, back_populates='action')
-
-
-
-class ActionApplication(Base):
-    __tablename__ = 'action_application'
-    id = Column(Integer, primary_key=True)
-    action_id = Column(Integer, ForeignKey('action.id', onupdate='CASCADE', \
-                                                       ondelete='CASCADE'))
     application_id = Column(Integer, ForeignKey('application_catalog.id', onupdate='CASCADE', \
                                                                   ondelete='CASCADE'))
     application_data = Column(types.UnicodeText)
-    action = relationship('Action', back_populates='application')
+    active = Column(types.Boolean, default=True)
     application_catalog = relationship('ApplicationCatalog')
+    sequence = relationship('Sequence')
+
+    def __init__(self, sequence_id, application_id, application_data, active):
+        self.sequence_id = sequence_id
+        self.application_id = application_id
+        self.application_data = application_data
+        self.active = active
+
 
 
 
@@ -323,11 +359,21 @@ class ApplicationCatalog(Base):
     id = Column(Integer, primary_key=True)
     command = Column(types.UnicodeText, unique=True)
     data_template = Column(types.UnicodeText)
-    actions = relationship('ActionApplication', back_populates="application_catalog")
+    actions = relationship('Action', back_populates="application_catalog", cascade="all, delete-orphan")
 
     def __init__(self, application_name, data_template):
         self.application_name = application_name
         self.data_template = data_template
+
+    def get_id_by_command(request, command):
+        try:
+            application = request.dbsession.query(ApplicationCatalog).filter(ApplicationCatalog.command == command).one()
+            return application
+        except Exception as e:
+            log.debug('ApplicationCatalog.get_id_by_command failed with {0}'.format(e))
+            raise
+
+        
 
 
 

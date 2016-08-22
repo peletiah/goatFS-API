@@ -69,11 +69,20 @@ class RootFactory(object):
 class ResourceFactory(object):
     def __init__(self, request):
         self.__acl__ = []
-        rid = request.matchdict.get("resource_id")
+        #rid = request.matchdict.get("resource_id")
+        resource_name = request.path.split('/')[1]
+        log.debug('RESOURCE NAME {0}'.format(resource_name))
 
-        if not rid:
-            raise HTTPBadRequest()
-        self.resource = Resource.by_resource_id(rid,db_session=request.dbsession)
+        #TODO: verify if this is a good idea
+        self.resource = Resource.by_resource_name(resource_name, db_session=request.dbsession)
+
+        #if not rid:
+        #    raise HTTPBadRequest()
+
+        # A resource must be defined with a type that is 
+        # defined with the polymorphic-identity-argument
+        # in db_models
+        ##self.resource = Resource.by_resource_id(rid,db_session=request.dbsession)
         if not self.resource:
             raise HTTPNotFound()
         if self.resource and request.user:

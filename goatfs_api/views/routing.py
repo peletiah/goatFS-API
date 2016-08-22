@@ -4,14 +4,15 @@ import logging
 log = logging.getLogger(__name__)
 from goatfs_api.models import (
         Extension,
-        Route
+        Route,
+        Sequence
         )
 
 from goatfs_api.security import (
         ResourceFactory
         )
 
-route = Service(name='route', path='/route/{id}/{resource_id}', description="Sequence and Targets of Route specified by id", permission="view", factory=ResourceFactory,
+route = Service(name='route', path='/route/{id}', description="Sequence and Targets of Route specified by id", permission="view", factory=ResourceFactory,
 cors_policy = {'origins': ('*',), 'credentials': True})
 
 @route.get()
@@ -19,44 +20,21 @@ def get_route(request):
     user = request.user
     log.debug('User in ROUTE-view: {0}'.format(user))
     route_id = int(request.matchdict['id'])
-    route = request.dbsession.query(Route).filter(Route.id==route_id).one()
+    route = Route.get_route_by_id(request, route_id)
     log.debug('Route found {0}'.format(route.id))
     return route.reprJSON()
 
 @route.post()
 def post_route(request):
     user = request.user
-    log.debug('User in ROUTE-post')
-    return 'asdf'
+    log.debug('User in ROUTE-post: {0}'.format(user.user_name))
+    route_json = request.json_body
+    log.debug(route_json)
+    route = Route.get_route_by_id(request, route_json['id'])
+    for sequence in route.sequences:
+        request.dbsession.delete(sequence)
 
-route_extension = Service(name='route_extension', path='/route/extension/{extension}', description="Sequence and Targets of Route specified by extension", permission="edit",
-cors_policy = {'origins': ('*',), 'credentials': True})
+    for sequence_json in route_json['sequences']:
+        sequence = Sequence.add_sequence_from_json(request, route.id, sequence_json)
 
-@route_extension.get()
-def get_route_extension(request):
-    user = request.user
-    log.debug('User in ROUTE-view: {0}'.format(user))
-    extension = request.matchdict['extension']
-    route_list = list()
-    extension = request.dbsession.query(Extension).filter(Extension.extension == extension).one()
-    routes=sum([route.reprJSON() for route in extension.routes],[])
-    return routes
-
-
-
-#class RouteResource(object):
-#    def __init__(self, request):
-#        self.request = request
-#
-#    def collection_get(self):
-#        return {'stuff':'asdf'}
-#
-#    def get(self):
-#        route_id = int(self.request.matchdict['id'])
-#        log.debug('ROUTE ID in request:{0}'.format(route_id))
-#        route = self.request.dbsession.query(Route).filter(Route.id==route_id).one()
-#        return route.reprJSON()
-#
-#resource.add_view(RouteResource.get, renderer='json')
-#route_resource = resource.add_resource(RouteResource, collection_path='/routes', path='/routes/{id}', cors_policy = {'origins': ('*',), 'credentials': True})
-
+    return {'Status':'OK'}

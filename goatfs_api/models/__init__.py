@@ -16,7 +16,6 @@ from .db_model import (
         Route,
         Sequence,
         Action,
-        ActionApplication,
         ApplicationCatalog,
         )
 

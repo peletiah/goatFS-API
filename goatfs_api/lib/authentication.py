@@ -51,7 +51,7 @@ from goatfs_api.lib.crypto import hash_context
 
 import logging
 log = logging.getLogger(__name__)
-log.setLevel('DEBUG')
+log.setLevel('INFO')
 
 def b64decode(v):
     return base64.b64decode(bytes_(v))
@@ -102,13 +102,13 @@ def groupfinder(request, user_name, password):
 
     if user and user.groups:
         group_list = ['g:%s' % g.group_name for g in user.groups]
-        log.debug('groupfinder found GROUPS: {0} for USER: {1}'.format(group_list, user_name))
+        log.info('groupfinder found GROUPS: {0} for USER: {1}'.format(group_list, user_name))
         return group_list
     elif user:
-        log.debug('groupfinder found USER: {0}'.format(user))
+        log.info('groupfinder found USER: {0}'.format(user))
         return [user.user_name]
     else:
-        log.debug('groupfinder found no authentication credentials')
+        log.info('groupfinder found no authentication credentials')
         return []
 
 @implementer(IAuthenticationPolicy)
