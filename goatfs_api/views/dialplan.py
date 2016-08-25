@@ -12,16 +12,23 @@ from goatfs_api.security import (
         ResourceFactory
         )
 
-dialplan = Service(name='dialplan', path='/dialplan/{extension}', description="XML Dialplan for Extension", 
-        permission="edit", factory=ResourceFactory, cors_policy = {'origins': ('*',), 'credentials': True})
+dialplan = Service(name='dialplan', path='/dialplan', description="XML Dialplan for Extension",
+        renderer='dialplan.mako', content_type='text/xml',
+        permission="edit", factory=ResourceFactory, cors_policy = {'origins': ('*.goatfs.org:3000',), 'credentials': True})
 
 @dialplan.get()
 def get_dialplan(request):
     user = request.user
     log.debug('User in DIALPLAN-get: {0}'.format(user))
-    extension = request.matchdict['extension']
-    extension = request.dbsession.query(Extension).filter(Extension.extension == extension).one()
-    log.debug(extension.extension)
-    return extension.extension
+    #log.debug('REQUEST PATH QUERYSTRING {0}'.format(request.path_qs))
+    log.debug('REQUEST PARAMS {0}'.format(request.params.getall('hostname')))
+    destination_number = request.params.getone('Caller-Destination-Number')
+    extension = request.dbsession.query(Extension).filter(Extension.extension == destination_number).one()
+    route = request.dbsession.query(Route).filter(Route.extension_id == extension.id).first()
+    log.debug(route.reprJSON())
+    return {
+            'extension': extension.extension,
+            'route': route
+            }
 
     

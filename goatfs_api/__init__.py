@@ -9,7 +9,7 @@ def main(global_config, **settings):
     """
     config = Configurator(settings=settings,
                 root_factory='.security.RootFactory')
-    config.include('pyramid_jinja2')
+    config.include('pyramid_mako')
     config.include('.models')
     config.include('.routes')
     config.include('cornice')

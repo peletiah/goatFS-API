@@ -1,7 +1,5 @@
 from cornice import Service, resource
 
-import logging
-log = logging.getLogger(__name__)
 from goatfs_api.models import (
         Extension,
         Route,
@@ -12,8 +10,11 @@ from goatfs_api.security import (
         ResourceFactory
         )
 
+import logging
+log = logging.getLogger(__name__)
+
 route = Service(name='route', path='/route/{id}', description="Sequence and Targets of Route specified by id", permission="view", factory=ResourceFactory,
-cors_policy = {'origins': ('*',), 'credentials': True})
+        cors_policy = {'origins': ('*.goatfs.org:3000',), 'credentials': True})
 
 @route.get()
 def get_route(request):

@@ -21,8 +21,7 @@ from datetime import datetime, timedelta
 from goatfs_api.lib.crypto import hash_context
 
 import logging
-log = logging.getLogger(__name__)
-log.setLevel('INFO')
+log = logging.getLogger('auth')
 
 # Regular expression matching a single param in the HTTP_AUTHORIZATION header.
 # This is basically <name>=<value> where <value> can be an unquoted token,

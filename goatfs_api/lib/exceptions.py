@@ -17,6 +17,7 @@ class _204(exc.HTTPNoContent):
                     jwt,
                     httponly=True,
                     overwrite=True,
+                    domain='goatfs.org'
                     #max_age=20
                     )
         response.set_cookie(
@@ -24,6 +25,7 @@ class _204(exc.HTTPNoContent):
                     csrf,
                     httponly=False,
                     overwrite=True,
+                    domain='goatfs.org'
                     #max_age=20
                     )
  

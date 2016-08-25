@@ -50,8 +50,8 @@ from goatfs_api.lib.crypto import hash_context
 
 
 import logging
-log = logging.getLogger(__name__)
-log.setLevel('INFO')
+log = logging.getLogger('auth')
+#log.setLevel('DEBUG')
 
 def b64decode(v):
     return base64.b64decode(bytes_(v))
@@ -97,7 +97,7 @@ def groupfinder(request, user_name, password):
             return None
 
     except exc.NoAuthorizationHeader as e:
-        log.debug(e)
+        log.warn(e)
         return None
 
     if user and user.groups:
@@ -341,7 +341,7 @@ class JWTnBasicAuthAuthenticationPolicy(CallbackAuthenticationPolicy):
             log.debug('userid from unauthenticated_userid: {0}'.format(userid))
             return userid
         except Exception as e:
-            log.debug('_get_credentials failed, Error: {0}'.format(e))
+            log.warn('_get_credentials failed, Error: {0}'.format(e))
             raise
 
     def remember(self, request, principal, **kw):
@@ -368,7 +368,7 @@ class JWTnBasicAuthAuthenticationPolicy(CallbackAuthenticationPolicy):
             userid, password = credentials
             return self.check(request, userid, password)
         except Exception as e:
-            log.debug('callback failed with: {0}'.format(e))
+            log.warn('callback failed with: {0}'.format(e))
             return None
 
     def decode_jwt(self, request, jwtauth_token,
@@ -460,7 +460,7 @@ class JWTnBasicAuthAuthenticationPolicy(CallbackAuthenticationPolicy):
             return request.environ["jwtauth.params"]
         except KeyError:
             params = verify_jwt_access_cookie(request, None)
-            log.debug('params from verify_jwt_access_cookie: {0}'.format(params))
+            log.warn('params from verify_jwt_access_cookie: {0}'.format(params))
             if params is not None:
                 if params.get("scheme").upper() !=self.scheme:
                     params = None
