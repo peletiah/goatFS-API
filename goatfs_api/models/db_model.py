@@ -313,8 +313,9 @@ class Sequence(Base):
 
     def reprJSON(self):
         command = self.action.application_catalog.command
-        data = self.action.application_data
-        return dict(data=data, command=command, sequence=self.sequence)
+        cmdData = self.action.application_data
+        #TODO self.action.active must be applied
+        return dict(cmdData=cmdData, command=command, sequence=self.sequence)
 
     def add_sequence_from_json(request, route_id, sequence_json):
         if 'timeout' not in sequence_json:
@@ -326,7 +327,7 @@ class Sequence(Base):
         request.dbsession.add(sequence)
         request.dbsession.flush()
         log.debug('SEQUENCE ID IS {0}'.format(sequence.id))
-        action = Action(sequence.id, application.id, sequence_json['data'], True)
+        action = Action(sequence.id, application.id, sequence_json['cmdData'], True)
         request.dbsession.add(action)
         return sequence
 
@@ -351,6 +352,38 @@ class Action(Base):
         self.application_data = application_data
         self.active = active
 
+#class ActionApplication(Base):
+#    __tablename__ = 'action_application'
+#    id = Column(Integer, primary_key=True)
+#    action_id = Column(Integer, ForeignKey('action.id', onupdate='CASCADE', \
+#                                                            ondelete='CASCADE'))
+#    application_id = Column(Integer, ForeignKey('application_catalog.id', onupdate='CASCADE', \
+#                                                                  ondelete='CASCADE'))
+#    application_data = Column(types.UnicodeText)
+#    application_catalog = relationship('ApplicationCatalog')
+#    action = relationship('Action')
+#
+#    def __init__(self, action_id, application_id, application_data, active):
+#        self.sequence_id = sequence_id
+#        self.application_id = application_id
+#        self.application_data = application_data
+#
+#class ActionBridgeUser(Base):
+#    __tablename__ = 'action_bridge_user'
+#    id = Column(Integer, primary_key=True)
+#    action_id = Column(Integer, ForeignKey('action.id', onupdate='CASCADE', \
+#                                                            ondelete='CASCADE'))
+#    application_id = Column(Integer, ForeignKey('application_catalog.id', onupdate='CASCADE', \
+#                                                                  ondelete='CASCADE'))
+#    application_data = Column(types.UnicodeText)
+#    application_catalog = relationship('ApplicationCatalog')
+#    action = relationship('Action')
+#
+#    def __init__(self, action_id, application_id, application_data, active):
+#        self.sequence_id = sequence_id
+#        self.application_id = application_id
+#        self.application_data = application_data
+#
 
 
 
