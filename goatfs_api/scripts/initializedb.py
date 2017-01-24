@@ -26,6 +26,9 @@ from ..models import (
         Route,
         Sequence,
         Action,
+        ActionApplication,
+        ActionBridgeUser,
+        ActionBridgeEndpoint,
         ApplicationCatalog
         )
 

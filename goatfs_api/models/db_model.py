@@ -314,6 +314,8 @@ class Sequence(Base):
     def reprJSON(self):
         command = self.action.application_catalog.command
         cmdData = self.action.application_data
+        if command == "bridge":
+            cmdData=json.loads(cmdData)
         #TODO self.action.active must be applied
         return dict(cmdData=cmdData, command=command, sequence=self.sequence)
 
@@ -339,52 +341,59 @@ class Action(Base):
     id = Column(Integer, primary_key=True)
     sequence_id = Column(Integer, ForeignKey('sequence.id', onupdate='CASCADE', \
                                                             ondelete='CASCADE'))
+    active = Column(types.Boolean, default=True)
+    action_application = relationship('ActionApplication')
+    action_bridge_user = relationship('ActionBridgeUser')
+    action_bridge_endpoint = relationship('ActionBridgeEndpoint')
+    sequence = relationship('Sequence')
+
+    def __init__(self, sequence_id, active):
+        self.sequence_id = sequence_id
+        self.active = active
+
+class ActionApplication(Base):
+    __tablename__ = 'action_application'
+    id = Column(Integer, primary_key=True)
+    action_id = Column(Integer, ForeignKey('action.id', onupdate='CASCADE', \
+                                                            ondelete='CASCADE'))
     application_id = Column(Integer, ForeignKey('application_catalog.id', onupdate='CASCADE', \
                                                                   ondelete='CASCADE'))
     application_data = Column(types.UnicodeText)
-    active = Column(types.Boolean, default=True)
     application_catalog = relationship('ApplicationCatalog')
-    sequence = relationship('Sequence')
+    action = relationship('Action')
 
-    def __init__(self, sequence_id, application_id, application_data, active):
+    def __init__(self, action_id, application_id, application_data, active):
         self.sequence_id = sequence_id
+        self.action_id = action_id
         self.application_id = application_id
         self.application_data = application_data
-        self.active = active
 
-#class ActionApplication(Base):
-#    __tablename__ = 'action_application'
-#    id = Column(Integer, primary_key=True)
-#    action_id = Column(Integer, ForeignKey('action.id', onupdate='CASCADE', \
-#                                                            ondelete='CASCADE'))
-#    application_id = Column(Integer, ForeignKey('application_catalog.id', onupdate='CASCADE', \
-#                                                                  ondelete='CASCADE'))
-#    application_data = Column(types.UnicodeText)
-#    application_catalog = relationship('ApplicationCatalog')
-#    action = relationship('Action')
-#
-#    def __init__(self, action_id, application_id, application_data, active):
-#        self.sequence_id = sequence_id
-#        self.application_id = application_id
-#        self.application_data = application_data
-#
-#class ActionBridgeUser(Base):
-#    __tablename__ = 'action_bridge_user'
-#    id = Column(Integer, primary_key=True)
-#    action_id = Column(Integer, ForeignKey('action.id', onupdate='CASCADE', \
-#                                                            ondelete='CASCADE'))
-#    application_id = Column(Integer, ForeignKey('application_catalog.id', onupdate='CASCADE', \
-#                                                                  ondelete='CASCADE'))
-#    application_data = Column(types.UnicodeText)
-#    application_catalog = relationship('ApplicationCatalog')
-#    action = relationship('Action')
-#
-#    def __init__(self, action_id, application_id, application_data, active):
-#        self.sequence_id = sequence_id
-#        self.application_id = application_id
-#        self.application_data = application_data
-#
+class ActionBridgeUser(Base):
+    __tablename__ = 'action_bridge_user'
+    id = Column(Integer, primary_key=True)
+    extension_id = Column(Integer, ForeignKey('extension.id', onupdate='CASCADE', \
+                                                            ondelete='CASCADE'))
+    action_id = Column(Integer, ForeignKey('action.id', onupdate='CASCADE', \
+                                                            ondelete='CASCADE'))
+    action = relationship('Action')
 
+    def __init__(self, action_id, application_id, application_data, active):
+        self.sequence_id = sequence_id
+        self.extension_id = extension_id
+        self.action_id = action_id
+
+class ActionBridgeEndpoint(Base):
+    __tablename__ = 'action_bridge_endpoint'
+    id = Column(Integer, primary_key=True)
+    action_id = Column(Integer, ForeignKey('action.id', onupdate='CASCADE', \
+                                                            ondelete='CASCADE'))
+    endpoint = Column(types.UnicodeText)
+    action = relationship('Action')
+
+    def __init__(self, action_id, application_id, application_data, active):
+        self.sequence_id = sequence_id
+        self.extension_id = extension_id
+        self.action_id = action_id
 
 
 class ApplicationCatalog(Base):
@@ -392,7 +401,7 @@ class ApplicationCatalog(Base):
     id = Column(Integer, primary_key=True)
     command = Column(types.UnicodeText, unique=True)
     data_template = Column(types.UnicodeText)
-    actions = relationship('Action', back_populates="application_catalog", cascade="all, delete-orphan")
+    action_applications = relationship('ActionApplication', back_populates="application_catalog", cascade="all, delete-orphan")
 
     def __init__(self, application_name, data_template):
         self.application_name = application_name

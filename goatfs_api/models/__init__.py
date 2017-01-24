@@ -16,6 +16,9 @@ from .db_model import (
         Route,
         Sequence,
         Action,
+        ActionApplication,
+        ActionBridgeUser,
+        ActionBridgeEndpoint,
         ApplicationCatalog,
         )
 
