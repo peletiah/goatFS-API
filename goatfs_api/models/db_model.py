@@ -66,6 +66,19 @@ log = logging.getLogger(__name__)
 #    UniqueConstraint('user_id', 'group_id', name='user_id_group_id'))
 
 
+#################
+# n-n-Link tables
+#################
+
+user_directory_key_value_store_table = Table('user_directory_key_value_store', Base.metadata,
+    Column('user_directory_id', Integer, ForeignKey('user_directory.id', onupdate="CASCADE", ondelete="CASCADE"), primary_key=True),
+    Column('key_value_store_id', Integer, ForeignKey('key_value_store.id',onupdate="CASCADE", ondelete="CASCADE"), primary_key=True),
+    UniqueConstraint('user_directory_id', 'key_value_store_id', name='user_directory_key_value_store_id'))
+
+
+
+
+
 ######################################
 # ZIGGURAT FOUNDATION CLASS DEFINITION
 ######################################
@@ -253,22 +266,66 @@ class MenuItem(Base):
                 name=self.name, location=self.location)
 
 
+class KeyValueStore(Base):
+
+    __tablename__ = 'key_value_store'
+    id = Column(Integer, primary_key=True)
+    key = Column(types.UnicodeText)
+    value = Column(types.UnicodeText)
+    type = Column(types.UnicodeText)
+    #user_directory = relationship('UserDirectory', secondary='user_directory_key_value_store_table')
+
+    def __init__(self, key, value, type):
+        self.key = key
+        self.value = value
+        self.type = type
+     
 
 class Extension(Base):
 
     __tablename__ = 'extension'
     id = Column(Integer, primary_key=True)
-    extension = Column(types.UnicodeText, unique=True)
+    extension = Column(types.UnicodeText)
     domain_id = Column(Integer, ForeignKey('domain.id', onupdate='CASCADE', \
                             ondelete='CASCADE'))
     routes = relationship('Route', cascade='all, delete-orphan')
+    action_bridge_user = relationship('ActionBridgeUser', uselist=False, back_populates='extension', cascade='all, delete-orphan')
+    user_directory = relationship('UserDirectory', uselist=False, back_populates='extension', cascade='all, delete-orphan')
+    __table_args__ = (
+                UniqueConstraint('domain_id', 'extension', name='domain_id_extension_key'),
+                {}
+                )
+
 
     def __init__(self, extension, domain_id):
         self.extension = extension
         self.domain_id = domain_id
 
-    def routesJSON(self):
-        routes = self.routes
+    def reprJSON(self):
+        extension = dict()
+        extension['id'] = self.id
+        extension['extension'] = self.extension
+        try:
+            for kv in self.user_directory.settings:
+                log.debug(kv.key)
+                if kv.key == 'effective_caller_id_name':
+                    extension['name'] = kv.value
+        except AttributeError:
+            pass
+        return extension
+
+
+class UserDirectory(Base):
+    __tablename__ = 'user_directory'
+    id = Column(Integer, primary_key=True)
+    extension_id = Column(Integer, ForeignKey('extension.id', onupdate='CASCADE', \
+                            ondelete='CASCADE'))
+    extension = relationship('Extension')
+    settings = relationship('KeyValueStore', secondary=user_directory_key_value_store_table, backref='user_directory')
+
+
+    def __init__(self, extension_id):
+        self.extension_id = extension_id
 
 
 class Route(Resource):
@@ -282,7 +339,7 @@ class Route(Resource):
     sequences = relationship('Sequence', order_by='asc(Sequence.sequence)', cascade='all, delete-orphan')
 
     def reprJSON(self):
-        route = {"id":self.id, "sequences" : [sequence.reprJSON() for sequence in self.sequences]}
+        route = {"id":self.id, "sequences" : [sequence.reprJSON() for sequence in self.sequences if sequence.reprJSON()]}
         return route
 
     def get_route_by_id(request, id):
@@ -312,12 +369,12 @@ class Sequence(Base):
         self.timeout = timeout
 
     def reprJSON(self):
-        command = self.action.application_catalog.command
-        cmdData = self.action.application_data
-        if command == "bridge":
-            cmdData=json.loads(cmdData)
-        #TODO self.action.active must be applied
-        return dict(cmdData=cmdData, command=command, sequence=self.sequence)
+        try:
+            return dict(self.action.reprJSON(), sequence=self.sequence) 
+        except AttributeError:
+            return dict()
+
+
 
     def add_sequence_from_json(request, route_id, sequence_json):
         if 'timeout' not in sequence_json:
@@ -339,10 +396,12 @@ class Sequence(Base):
 class Action(Base):
     __tablename__ = 'action'
     id = Column(Integer, primary_key=True)
-    sequence_id = Column(Integer, ForeignKey('sequence.id', onupdate='CASCADE', \
-                                                            ondelete='CASCADE'))
+    sequence_id = Column(Integer, 
+                            ForeignKey('sequence.id', onupdate='CASCADE', \
+                                                      ondelete='CASCADE'),
+                            unique=True)
     active = Column(types.Boolean, default=True)
-    action_application = relationship('ActionApplication')
+    action_application = relationship('ActionApplication', uselist=False, back_populates='action', cascade='all, delete-orphan')
     action_bridge_user = relationship('ActionBridgeUser')
     action_bridge_endpoint = relationship('ActionBridgeEndpoint')
     sequence = relationship('Sequence')
@@ -351,6 +410,32 @@ class Action(Base):
         self.sequence_id = sequence_id
         self.active = active
 
+    def reprJSON(self):
+        if self.active == True:
+            try:
+                type="application"
+                command = self.action_application.application_catalog.command
+                cmdData = self.action_application.application_data
+                return dict(type=type, cmdData=cmdData, command=command)
+            except AttributeError:
+                bridge = dict()
+                bridge["type"]="bridge"
+                bridge["command"]="bridge" #TODO: can be removed after clientside is adapted
+
+                bridge["endpoints"] = list()
+                try:
+                    for target in self.action_bridge_endpoint:
+                        target.reprJSON(bridge)
+                except AttributeError:
+                    pass
+                try:
+                    bridge["users"] = list()
+                    for target in self.action_bridge_user:
+                        target.reprJSON(bridge)
+                except AttributeError:
+                    pass
+                return bridge
+                
 class ActionApplication(Base):
     __tablename__ = 'action_application'
     id = Column(Integer, primary_key=True)
@@ -376,11 +461,18 @@ class ActionBridgeUser(Base):
     action_id = Column(Integer, ForeignKey('action.id', onupdate='CASCADE', \
                                                             ondelete='CASCADE'))
     action = relationship('Action')
+    extension = relationship('Extension')
 
     def __init__(self, action_id, application_id, application_data, active):
         self.sequence_id = sequence_id
         self.extension_id = extension_id
         self.action_id = action_id
+
+    def reprJSON(self, bridge=dict()):
+        bridge["users"].append(self.extension.reprJSON())
+        return bridge
+
+
 
 class ActionBridgeEndpoint(Base):
     __tablename__ = 'action_bridge_endpoint'
@@ -395,6 +487,10 @@ class ActionBridgeEndpoint(Base):
         self.extension_id = extension_id
         self.action_id = action_id
 
+    def reprJSON(self, bridge):
+        log.debug(self.endpoint)
+        bridge["endpoints"].append(self.endpoint)
+        return bridge
 
 class ApplicationCatalog(Base):
     __tablename__ = 'application_catalog'
