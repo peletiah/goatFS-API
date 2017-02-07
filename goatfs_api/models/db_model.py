@@ -472,8 +472,6 @@ class ActionBridgeUser(Base):
         bridge["users"].append(self.extension.reprJSON())
         return bridge
 
-
-
 class ActionBridgeEndpoint(Base):
     __tablename__ = 'action_bridge_endpoint'
     id = Column(Integer, primary_key=True)
