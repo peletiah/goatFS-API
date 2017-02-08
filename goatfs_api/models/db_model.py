@@ -309,7 +309,7 @@ class Extension(Base):
             for kv in self.user_directory.settings:
                 log.debug(kv.key)
                 if kv.key == 'effective_caller_id_name':
-                    extension['name'] = kv.value
+                    extension['target'] = '{0} - {1}'.format(kv.value, self.extension)
         except AttributeError:
             pass
         return extension
@@ -413,27 +413,25 @@ class Action(Base):
     def reprJSON(self):
         if self.active == True:
             try:
-                type="application"
                 command = self.action_application.application_catalog.command
                 cmdData = self.action_application.application_data
-                return dict(type=type, cmdData=cmdData, command=command)
+                return dict(cmdData=cmdData, command=command)
             except AttributeError:
                 bridge = dict()
-                bridge["type"]="bridge"
-                bridge["command"]="bridge" #TODO: can be removed after clientside is adapted
+                bridge["command"]="bridge"
 
-                bridge["endpoints"] = list()
+                bridge["cmdData"] = list()
+                try:
+                    for target in self.action_bridge_user:
+                        target.reprJSON(bridge)
+                except AttributeError:
+                    pass
                 try:
                     for target in self.action_bridge_endpoint:
                         target.reprJSON(bridge)
                 except AttributeError:
                     pass
-                try:
-                    bridge["users"] = list()
-                    for target in self.action_bridge_user:
-                        target.reprJSON(bridge)
-                except AttributeError:
-                    pass
+
                 return bridge
                 
 class ActionApplication(Base):
@@ -469,7 +467,8 @@ class ActionBridgeUser(Base):
         self.action_id = action_id
 
     def reprJSON(self, bridge=dict()):
-        bridge["users"].append(self.extension.reprJSON())
+        bridge["cmdData"].append(self.extension.reprJSON())
+        bridge["cmdData"][-1]["type"] = "user"
         return bridge
 
 class ActionBridgeEndpoint(Base):
@@ -487,7 +486,7 @@ class ActionBridgeEndpoint(Base):
 
     def reprJSON(self, bridge):
         log.debug(self.endpoint)
-        bridge["endpoints"].append(self.endpoint)
+        bridge["cmdData"].append({"target":self.endpoint, "id":self.id, "type":"endpoint"})
         return bridge
 
 class ApplicationCatalog(Base):
