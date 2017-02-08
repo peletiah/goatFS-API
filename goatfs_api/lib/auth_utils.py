@@ -177,7 +177,7 @@ def make_jwt(login, expire=7):
 
 
 def make_csrf(request, login, jwt):
-    csrf_secret = request.registry.settings.csrf_secret
+    csrf_secret = request.registry.settings['csrf_secret']
     registry = get_current_registry()
     policy = registry.getUtility(IAuthenticationPolicy)
     claims=policy.decode_jwt(request, jwt)

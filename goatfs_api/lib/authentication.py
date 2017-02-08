@@ -640,7 +640,7 @@ class JWTnBasicAuthAuthenticationPolicy(CallbackAuthenticationPolicy):
 
         # Getting variables from settings and JWT to compute
         # the required hash
-        csrf_secret = request.registry.settings.csrf_secret
+        csrf_secret = request.registry.settings['csrf_secret']
         claims = request.environ.get("jwtauth.claims", None)
         expire = claims['exp']
 
