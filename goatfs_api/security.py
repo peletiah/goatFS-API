@@ -15,7 +15,8 @@ from pyramid.security import (
 from pyramid.httpexceptions import HTTPBadRequest
 
 from goatfs_api.models.db_model import (
-    Resource
+    Resource,
+    Route
     )
 
 from .lib.authentication import JWTnBasicAuthAuthenticationPolicy, get_user_from_unauthenticated_userid
@@ -69,11 +70,9 @@ class RootFactory(object):
 class ResourceFactory(object):
     def __init__(self, request):
         self.__acl__ = []
-        #rid = request.matchdict.get("resource_id")
         resource_name = request.path.split('/')[1]
         log.debug('RESOURCE NAME {0}'.format(resource_name))
 
-        #TODO: verify if this is a good idea
         self.resource = Resource.by_resource_name(resource_name, db_session=request.dbsession)
 
         #if not rid:
@@ -87,9 +86,43 @@ class ResourceFactory(object):
             raise HTTPNotFound()
         if self.resource and request.user:
             # append basic resource acl that gives all permissions to owner
-            #self.__acl__ = self.resource.__acl__
+            self.__acl__ = self.resource.__acl__()
+            log.debug('############')
+            log.debug(self.__acl__)
             # append permissions that current user may have for this context resource
+            log.debug(self.resource)
             permissions = self.resource.perms_for_user(request.user)
+            log.debug(permissions)
+            for outcome, perm_user, perm_name in permission_to_pyramid_acls(
+                    permissions):
+                self.__acl__.append((outcome, perm_user, perm_name,))
+
+class RouteResourceFactory(object):
+    def __init__(self, request):
+        self.__acl__ = []
+        route_id = request.matchdict.get("id")
+        route = Route.get_route_by_id(request, route_id)
+
+        self.resource = Resource.by_resource_id(route.resource_id, db_session=request.dbsession)
+
+        #if not rid:
+        #    raise HTTPBadRequest()
+
+        # A resource must be defined with a type that is 
+        # defined with the polymorphic-identity-argument
+        # in db_models
+        ##self.resource = Resource.by_resource_id(rid,db_session=request.dbsession)
+        if not self.resource:
+            raise HTTPNotFound()
+        if self.resource and request.user:
+            # append basic resource acl that gives all permissions to owner
+            self.__acl__ = self.resource.__acl__()
+            log.debug('############')
+            log.debug(self.__acl__)
+            # append permissions that current user may have for this context resource
+            log.debug(self.resource)
+            permissions = self.resource.perms_for_user(request.user)
+            log.debug(permissions)
             for outcome, perm_user, perm_name in permission_to_pyramid_acls(
                     permissions):
                 self.__acl__.append((outcome, perm_user, perm_name,))

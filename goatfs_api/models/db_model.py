@@ -55,15 +55,13 @@ from ziggurat_foundations.models.user_permission import UserPermissionMixin
 from ziggurat_foundations.models.user_resource_permission import UserResourcePermissionMixin
 from ziggurat_foundations import ziggurat_model_init
 
+
 from goatfs_api.lib import timetools
 from .meta import Base
 
+
 log = logging.getLogger(__name__)
 
-#users_groups_table = Table('users_groups', Base.metadata,
-#    Column('user_id', Integer, ForeignKey('users.id', onupdate="CASCADE", ondelete="CASCADE"), primary_key=True),
-#    Column('group_id', Integer, ForeignKey('groups.id',onupdate="CASCADE", ondelete="CASCADE"), primary_key=True),
-#    UniqueConstraint('user_id', 'group_id', name='user_id_group_id'))
 
 
 #################
@@ -75,8 +73,10 @@ user_directory_key_value_store_table = Table('user_directory_key_value_store', B
     Column('key_value_store_id', Integer, ForeignKey('key_value_store.id',onupdate="CASCADE", ondelete="CASCADE"), primary_key=True),
     UniqueConstraint('user_directory_id', 'key_value_store_id', name='user_directory_key_value_store_id'))
 
-
-
+extension_group_table = Table('extension_group', Base.metadata,
+    Column('extension_id', Integer, ForeignKey('extension.id', onupdate="CASCADE", ondelete="CASCADE"), primary_key=True),
+    Column('group_id', Integer, ForeignKey('groups.id',onupdate="CASCADE", ondelete="CASCADE"), primary_key=True),
+    UniqueConstraint('extension_id', 'group_id', name='extension_id_group_id'))
 
 
 ######################################
@@ -137,7 +137,6 @@ class User(UserMixin, Base):
     last_login_date = Column(types.TIMESTAMP(timezone=False), default=timetools.now())
     registered_date = Column(types.TIMESTAMP(timezone=False), default=timetools.now())
     security_code_date = Column(types.TIMESTAMP(timezone=False), default=timetools.now())
-#    groups = relationship('Group', secondary=users_groups_table, backref='memberships')
 
 
     @classmethod
@@ -174,7 +173,7 @@ class Group(GroupMixin, Base):
     group_name = Column(types.UnicodeText, unique=True)
     description = Column(types.UnicodeText)
     member_count = Column(Integer)
-    #users = relationship('User', secondary=users_groups_table, backref='members')
+    extensions = relationship('Extension', secondary=extension_group_table, backref='members')
 
     @property
     def __acl__(self):
@@ -286,16 +285,10 @@ class Extension(Base):
     __tablename__ = 'extension'
     id = Column(Integer, primary_key=True)
     extension = Column(types.UnicodeText)
-    domain_id = Column(Integer, ForeignKey('domain.id', onupdate='CASCADE', \
-                            ondelete='CASCADE'))
     routes = relationship('Route', cascade='all, delete-orphan')
     action_bridge_user = relationship('ActionBridgeUser', uselist=False, back_populates='extension', cascade='all, delete-orphan')
     user_directory = relationship('UserDirectory', uselist=False, back_populates='extension', cascade='all, delete-orphan')
-    __table_args__ = (
-                UniqueConstraint('domain_id', 'extension', name='domain_id_extension_key'),
-                {}
-                )
-
+    groups = relationship('Group', secondary=extension_group_table, backref='memberships')
 
     def __init__(self, extension, domain_id):
         self.extension = extension
@@ -311,7 +304,7 @@ class Extension(Base):
                 if kv.key == 'effective_caller_id_name':
                     extension['target'] = '{0} - {1}'.format(kv.value, self.extension)
         except AttributeError:
-            pass
+            extension['target'] = '{0}'.format(self.extension)
         return extension
 
 
@@ -338,6 +331,7 @@ class Route(Resource):
                                                               ondelete='CASCADE'))
     sequences = relationship('Sequence', order_by='asc(Sequence.sequence)', cascade='all, delete-orphan')
 
+    
     def reprJSON(self):
         route = {"id":self.id, "sequences" : [sequence.reprJSON() for sequence in self.sequences if sequence.reprJSON()]}
         return route
@@ -349,6 +343,11 @@ class Route(Resource):
         except Exception as e:
             log.debug('Error retrieving route by id, {0}'.format(e))
             raise
+
+    def __acl__(self):
+        return [
+                (Allow, self.owner, 'edit')
+        ]
 
 class Sequence(Base):
     __tablename__ = 'sequence'
@@ -382,12 +381,10 @@ class Sequence(Base):
         else:
             timeout = sequence['timeout']
         sequence = Sequence(route_id, sequence_json['sequence'], timeout)
-        application = ApplicationCatalog.get_id_by_command(request, sequence_json['command'])
         request.dbsession.add(sequence)
         request.dbsession.flush()
         log.debug('SEQUENCE ID IS {0}'.format(sequence.id))
-        action = Action(sequence.id, application.id, sequence_json['cmdData'], True)
-        request.dbsession.add(action)
+        Action.add_action_from_json(request, sequence, sequence_json)
         return sequence
 
 
@@ -400,76 +397,102 @@ class Action(Base):
                             ForeignKey('sequence.id', onupdate='CASCADE', \
                                                       ondelete='CASCADE'),
                             unique=True)
+    application_id = Column(Integer, ForeignKey('application_catalog.id', onupdate='CASCADE', \
+                                                                  ondelete='CASCADE'))
     active = Column(types.Boolean, default=True)
     action_application = relationship('ActionApplication', uselist=False, back_populates='action', cascade='all, delete-orphan')
     action_bridge_user = relationship('ActionBridgeUser')
     action_bridge_endpoint = relationship('ActionBridgeEndpoint')
+    application_catalog = relationship('ApplicationCatalog')
     sequence = relationship('Sequence')
 
-    def __init__(self, sequence_id, active):
+    def __init__(self, sequence_id, application_id, active):
         self.sequence_id = sequence_id
+        self.application_id = application_id
         self.active = active
 
     def reprJSON(self):
         if self.active == True:
+            command = self.application_catalog.command
             try:
-                command = self.action_application.application_catalog.command
                 cmdData = self.action_application.application_data
-                return dict(cmdData=cmdData, command=command)
             except AttributeError:
-                bridge = dict()
-                bridge["command"]="bridge"
-
-                bridge["cmdData"] = list()
+                self.application_catalog.command
+                cmdData = list()
                 try:
                     for target in self.action_bridge_user:
-                        target.reprJSON(bridge)
+                        target.reprJSON(cmdData)
                 except AttributeError:
                     pass
                 try:
                     for target in self.action_bridge_endpoint:
-                        target.reprJSON(bridge)
+                        target.reprJSON(cmdData)
                 except AttributeError:
                     pass
 
-                return bridge
-                
+            return dict(cmdData=cmdData, command=command)
+
+    def add_action_from_json(request, sequence, sequence_json):
+        command = sequence_json['command']
+        cmdData = sequence_json['cmdData']
+        application = ApplicationCatalog.get_application_by_command(request, command)
+        action = Action(sequence.id, application.id, True)
+        request.dbsession.add(action)
+        request.dbsession.flush()
+        log.debug('ACTION ID IS {0}'.format(action.id))
+
+        if command == 'bridge':
+            for target in cmdData:
+                Action.add_bridge_targets(request, action, target)
+        else:
+            action_application = ActionApplication(action.id, cmdData)
+            request.dbsession.add(action_application)
+
+    def add_bridge_targets(request, action, target):
+        if target['type'] in ['user','extension']:
+            actionbridge = ActionBridgeUser(target['id'], action.id)
+            request.dbsession.add(actionbridge)
+            #TODO Distinguish between User and Extension
+        elif target['type'] == 'endpoint':
+            actionbridge = ActionBridgeEndpoint(action.id, target['target'])
+            request.dbsession.add(actionbridge)
+
+
 class ActionApplication(Base):
     __tablename__ = 'action_application'
     id = Column(Integer, primary_key=True)
     action_id = Column(Integer, ForeignKey('action.id', onupdate='CASCADE', \
                                                             ondelete='CASCADE'))
-    application_id = Column(Integer, ForeignKey('application_catalog.id', onupdate='CASCADE', \
-                                                                  ondelete='CASCADE'))
     application_data = Column(types.UnicodeText)
-    application_catalog = relationship('ApplicationCatalog')
     action = relationship('Action')
 
-    def __init__(self, action_id, application_id, application_data, active):
-        self.sequence_id = sequence_id
+    def __init__(self, action_id, application_data):
         self.action_id = action_id
-        self.application_id = application_id
         self.application_data = application_data
+
 
 class ActionBridgeUser(Base):
     __tablename__ = 'action_bridge_user'
     id = Column(Integer, primary_key=True)
-    extension_id = Column(Integer, ForeignKey('extension.id', onupdate='CASCADE', \
-                                                            ondelete='CASCADE'))
     action_id = Column(Integer, ForeignKey('action.id', onupdate='CASCADE', \
+                                                            ondelete='CASCADE'))
+    extension_id = Column(Integer, ForeignKey('extension.id', onupdate='CASCADE', \
                                                             ondelete='CASCADE'))
     action = relationship('Action')
     extension = relationship('Extension')
 
-    def __init__(self, action_id, application_id, application_data, active):
-        self.sequence_id = sequence_id
+    def __init__(self, extension_id, action_id):
         self.extension_id = extension_id
         self.action_id = action_id
 
-    def reprJSON(self, bridge=dict()):
-        bridge["cmdData"].append(self.extension.reprJSON())
-        bridge["cmdData"][-1]["type"] = "user"
-        return bridge
+    def reprJSON(self, cmdData=list()):
+        cmdData.append(self.extension.reprJSON())
+        log.debug(self.extension.user_directory)
+        if self.extension.user_directory:
+            cmdData[-1]["type"] = "user"
+        else:
+            cmdData[-1]["type"] = "extension"
+        return cmdData 
 
 class ActionBridgeEndpoint(Base):
     __tablename__ = 'action_bridge_endpoint'
@@ -478,34 +501,37 @@ class ActionBridgeEndpoint(Base):
                                                             ondelete='CASCADE'))
     endpoint = Column(types.UnicodeText)
     action = relationship('Action')
+    __table_args__ = (
+                UniqueConstraint('action_id', 'endpoint', name='action_id_endpoint_key'),
+                {}
+                )
 
-    def __init__(self, action_id, application_id, application_data, active):
-        self.sequence_id = sequence_id
-        self.extension_id = extension_id
+    def __init__(self, action_id, endpoint):
         self.action_id = action_id
+        self.endpoint = endpoint
 
-    def reprJSON(self, bridge):
+    def reprJSON(self, cmdData=list()):
         log.debug(self.endpoint)
-        bridge["cmdData"].append({"target":self.endpoint, "id":self.id, "type":"endpoint"})
-        return bridge
+        cmdData.append({"target":self.endpoint, "id":self.id, "type":"endpoint"})
+        return cmdData 
 
 class ApplicationCatalog(Base):
     __tablename__ = 'application_catalog'
     id = Column(Integer, primary_key=True)
     command = Column(types.UnicodeText, unique=True)
     data_template = Column(types.UnicodeText)
-    action_applications = relationship('ActionApplication', back_populates="application_catalog", cascade="all, delete-orphan")
+    actions = relationship('Action', back_populates="application_catalog", cascade="all, delete-orphan")
 
     def __init__(self, application_name, data_template):
         self.application_name = application_name
         self.data_template = data_template
 
-    def get_id_by_command(request, command):
+    def get_application_by_command(request, command):
         try:
             application = request.dbsession.query(ApplicationCatalog).filter(ApplicationCatalog.command == command).one()
             return application
         except Exception as e:
-            log.debug('ApplicationCatalog.get_id_by_command failed with {0}'.format(e))
+            log.debug('ApplicationCatalog.get_application_by_command failed with {0}'.format(e))
             raise
 
         

@@ -7,13 +7,13 @@ from goatfs_api.models import (
         )
 
 from goatfs_api.security import (
-        ResourceFactory
+        RouteResourceFactory
         )
 
 import logging
 log = logging.getLogger(__name__)
 
-route = Service(name='route', path='/route/{id}', description="Sequence and Targets of Route specified by id", permission="view", factory=ResourceFactory,
+route = Service(name='route', path='/route/{id}', description="Sequence and Targets of Route specified by id", permission="view", factory=RouteResourceFactory,
         cors_policy = {'origins': ('*.goatfs.org:3000',), 'credentials': True})
 
 @route.get()
@@ -34,6 +34,7 @@ def post_route(request):
     route = Route.get_route_by_id(request, route_json['id'])
     for sequence in route.sequences:
         request.dbsession.delete(sequence)
+        #TODO recycle sequence on change-only, handle sequence-deletion on frontend
 
     for sequence_json in route_json['sequences']:
         sequence = Sequence.add_sequence_from_json(request, route.id, sequence_json)
