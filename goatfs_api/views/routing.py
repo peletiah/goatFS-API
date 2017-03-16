@@ -2,8 +2,12 @@ from cornice import Service, resource
 
 from goatfs_api.models import (
         Extension,
+        Group,
         Route,
-        Sequence
+        Sequence,
+        Action,
+        ActionApplication,
+        ApplicationCatalog
         )
 
 from goatfs_api.security import (
@@ -23,20 +27,34 @@ def get_route(request):
     route_id = int(request.matchdict['id'])
     route = Route.get_route_by_id(request, route_id)
     log.debug('Route found {0}'.format(route.id))
-    return route.reprJSON()
+    group = Group.get_group_by_id(request, 3)
+    extensions = [extension.reprJSON() for extension in group.extensions]
+    route_json = route.reprJSON()
+    route_json['availableExtensions'] = extensions
+    applications = ApplicationCatalog.get_applications(request)
+    application_catalog = [application.reprJSON() for application in applications]
+    route_json['applicationCatalog'] = application_catalog 
+    return route_json
 
-@route.post()
-def post_route(request):
+@route.put()
+def put_route(request):
     user = request.user
     log.debug('User in ROUTE-post: {0}'.format(user.user_name))
     route_json = request.json_body
     log.debug(route_json)
     route = Route.get_route_by_id(request, route_json['id'])
-    for sequence in route.sequences:
-        request.dbsession.delete(sequence)
-        #TODO recycle sequence on change-only, handle sequence-deletion on frontend
-
     for sequence_json in route_json['sequences']:
-        sequence = Sequence.add_sequence_from_json(request, route.id, sequence_json)
+        sequence = Sequence.add_change_sequence_from_json(request, route, sequence_json)
+        try:
+            if sequence.action:
+                request.dbsession.delete(sequence.action)
+            action = Action.add_action_from_json(request, sequence, sequence_json)
+        except Exception as e:
+            log.debug('Error delete action {0} in sequence {1}, {2}'.format( \
+                sequence.action.id, sequence.id, e))
+            raise
+
+    #TODO: Return update sequences/actions with id's and all 
+    #      so we can update our react-state
 
     return {'Status':'OK'}

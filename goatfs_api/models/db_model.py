@@ -13,7 +13,7 @@ from sqlalchemy import (
     types,
     ForeignKey,
     UniqueConstraint,
-    Unicode
+    Unicode,
 )
 
 from sqlalchemy.ext.declarative import declarative_base
@@ -24,7 +24,8 @@ from sqlalchemy.orm import (
     scoped_session,
     sessionmaker,
     relationship,
-    backref
+    backref,
+    exc as orm_exc
     )
 
 from pyramid.security import (
@@ -73,7 +74,7 @@ user_directory_key_value_store_table = Table('user_directory_key_value_store', B
     Column('key_value_store_id', Integer, ForeignKey('key_value_store.id',onupdate="CASCADE", ondelete="CASCADE"), primary_key=True),
     UniqueConstraint('user_directory_id', 'key_value_store_id', name='user_directory_key_value_store_id'))
 
-extension_group_table = Table('extension_group', Base.metadata,
+extension_group_table = Table('extensions_groups', Base.metadata,
     Column('extension_id', Integer, ForeignKey('extension.id', onupdate="CASCADE", ondelete="CASCADE"), primary_key=True),
     Column('group_id', Integer, ForeignKey('groups.id',onupdate="CASCADE", ondelete="CASCADE"), primary_key=True),
     UniqueConstraint('extension_id', 'group_id', name='extension_id_group_id'))
@@ -192,6 +193,16 @@ class Group(GroupMixin, Base):
         group = request.dbsession.query(Group).filter(Group.name == name).one()
         return group
 
+    def get_group_by_id(request, id):
+        try:
+            group = request.dbsession.query(Group).filter(Group.id == id).one()
+            return group
+        except Exception as e:
+            log.debug('Error retrieving group by id, {0}'.format(e))
+            raise
+
+
+
 class AuthToken(Base):
     __tablename__ = 'auth_token'
     id = Column(Integer, primary_key=True)
@@ -294,18 +305,30 @@ class Extension(Base):
         self.extension = extension
         self.domain_id = domain_id
 
+    def get_by_id(request, extension_id):
+        try:
+            extension = request.dbsession.query(Extension).filter(Extension.id == extension_id).one()
+            return extension
+        except Exception as e:
+            log.debug('Extension.get_by_id failed with {0}'.format(e))
+            raise
+
+
     def reprJSON(self):
         extension = dict()
-        extension['id'] = self.id
+        extension['extension_id'] = self.id
         extension['extension'] = self.extension
         try:
             for kv in self.user_directory.settings:
                 log.debug(kv.key)
                 if kv.key == 'effective_caller_id_name':
                     extension['target'] = '{0} - {1}'.format(kv.value, self.extension)
+            extension['type'] = 'user'
         except AttributeError:
             extension['target'] = '{0}'.format(self.extension)
+            extension['type'] = 'extension'
         return extension
+
 
 
 class UserDirectory(Base):
@@ -367,24 +390,41 @@ class Sequence(Base):
         self.sequence = sequence
         self.timeout = timeout
 
+    def get_sequence_by_id(request, id):
+        try:
+            sequence = request.dbsession.query(Sequence).filter(Sequence.id==id).one()
+            return sequence 
+        except orm_exc.NoResultFound:
+            log.info('Sequence.get_by_id couldn\' find given id {0}'.format(id))
+            return None
+        except Exception as e:
+            log.debug('Error retrieving sequence by id for sequence_id {0}, {1}'.format(id, e))
+            raise
+
     def reprJSON(self):
         try:
-            return dict(self.action.reprJSON(), sequence=self.sequence) 
+            return dict(self.action.reprJSON(), sequence_id=self.id, sequence=self.sequence, timeout=self.timeout) 
         except AttributeError:
             return dict()
 
 
 
-    def add_sequence_from_json(request, route_id, sequence_json):
+    def add_change_sequence_from_json(request, route, sequence_json):
         if 'timeout' not in sequence_json:
             timeout = None
         else:
-            timeout = sequence['timeout']
-        sequence = Sequence(route_id, sequence_json['sequence'], timeout)
+            timeout = sequence_json['timeout']
+        sequence_id = sequence_json['sequence_id']
+        if sequence_json['sequence_id'] != -1 and \
+           Sequence.get_sequence_by_id(request, sequence_id) != None:
+            sequence = Sequence.get_sequence_by_id(request, sequence_json['sequence_id'])
+            sequence.route_id = route.id
+            sequence.sequence = sequence_json['sequence']
+            sequence.timeout = sequence_json['timeout']
+        else:
+            sequence = Sequence(route.id, sequence_json['sequence'], timeout)
         request.dbsession.add(sequence)
         request.dbsession.flush()
-        log.debug('SEQUENCE ID IS {0}'.format(sequence.id))
-        Action.add_action_from_json(request, sequence, sequence_json)
         return sequence
 
 
@@ -401,8 +441,8 @@ class Action(Base):
                                                                   ondelete='CASCADE'))
     active = Column(types.Boolean, default=True)
     action_application = relationship('ActionApplication', uselist=False, back_populates='action', cascade='all, delete-orphan')
-    action_bridge_user = relationship('ActionBridgeUser')
-    action_bridge_endpoint = relationship('ActionBridgeEndpoint')
+    action_bridge_user = relationship('ActionBridgeUser', cascade='all, delete-orphan')
+    action_bridge_endpoint = relationship('ActionBridgeEndpoint', cascade='all, delete-orphan')
     application_catalog = relationship('ApplicationCatalog')
     sequence = relationship('Sequence')
 
@@ -413,11 +453,12 @@ class Action(Base):
 
     def reprJSON(self):
         if self.active == True:
-            command = self.application_catalog.command
+            command = self.application_catalog.reprJSON()
             try:
                 cmdData = self.action_application.application_data
             except AttributeError:
-                self.application_catalog.command
+                # this is not an application-action
+                self.application_catalog.reprJSON()
                 cmdData = list()
                 try:
                     for target in self.action_bridge_user:
@@ -435,23 +476,35 @@ class Action(Base):
     def add_action_from_json(request, sequence, sequence_json):
         command = sequence_json['command']
         cmdData = sequence_json['cmdData']
-        application = ApplicationCatalog.get_application_by_command(request, command)
+        application_catalog_id = command['application_catalog_id']
+        if application_catalog_id == -1:
+            application = ApplicationCatalog.get_by_command( \
+                request, command['command'])
+        else:
+            application = ApplicationCatalog.get_by_id( \
+                request, application_catalog_id)
+
         action = Action(sequence.id, application.id, True)
         request.dbsession.add(action)
         request.dbsession.flush()
         log.debug('ACTION ID IS {0}'.format(action.id))
 
-        if command == 'bridge':
+        if command['command'] == 'bridge':
             for target in cmdData:
                 Action.add_bridge_targets(request, action, target)
         else:
             action_application = ActionApplication(action.id, cmdData)
             request.dbsession.add(action_application)
 
+        return action
+
     def add_bridge_targets(request, action, target):
         if target['type'] in ['user','extension']:
-            actionbridge = ActionBridgeUser(target['id'], action.id)
-            request.dbsession.add(actionbridge)
+            log.debug('Extension {0}'.format(target['extension_id']))
+            extension = Extension.get_by_id(request, target['extension_id'])
+            if extension != None:
+                actionbridge = ActionBridgeUser( target['extension_id'], action.id )
+                request.dbsession.add(actionbridge)
             #TODO Distinguish between User and Extension
         elif target['type'] == 'endpoint':
             actionbridge = ActionBridgeEndpoint(action.id, target['target'])
@@ -488,10 +541,6 @@ class ActionBridgeUser(Base):
     def reprJSON(self, cmdData=list()):
         cmdData.append(self.extension.reprJSON())
         log.debug(self.extension.user_directory)
-        if self.extension.user_directory:
-            cmdData[-1]["type"] = "user"
-        else:
-            cmdData[-1]["type"] = "extension"
         return cmdData 
 
 class ActionBridgeEndpoint(Base):
@@ -510,10 +559,23 @@ class ActionBridgeEndpoint(Base):
         self.action_id = action_id
         self.endpoint = endpoint
 
+    def get_by_id(request, endpoint_id):
+        try:
+            endpoint = request.dbsession.query(ActionBridgeEndpoint).filter(ActionBridgeEndpoint.id == endpoint_id).one()
+            return endpoint
+        except orm_exc.NoResultFound:
+            log.debug('ActionBridgeEndpoint.get_by_id couldn\' find given id {0}'.format(endpoint_id))
+            return None
+        except Exception as e:
+            log.debug('ActionBridgeEndpoint.get_by_id with endpoint_id {0} failed with Error: {1}'.format(endpoint_id, e))
+            raise
+
     def reprJSON(self, cmdData=list()):
         log.debug(self.endpoint)
-        cmdData.append({"target":self.endpoint, "id":self.id, "type":"endpoint"})
+        cmdData.append({"target":self.endpoint, "action_bridge_endpoint_id":self.id, "type":"endpoint"})
         return cmdData 
+
+
 
 class ApplicationCatalog(Base):
     __tablename__ = 'application_catalog'
@@ -526,13 +588,39 @@ class ApplicationCatalog(Base):
         self.application_name = application_name
         self.data_template = data_template
 
-    def get_application_by_command(request, command):
+    def get_by_id(request, application_catalog_id):
+        try:
+            application = request.dbsession.query(ApplicationCatalog).filter(ApplicationCatalog.id == application_catalog_id).one()
+            return application
+        except Exception as e:
+            log.debug('ApplicationCatalog.get_by_id failed with {0} for id {1}'.format(e, application_catalog_id))
+            raise
+
+
+    def get_by_command(request, command):
         try:
             application = request.dbsession.query(ApplicationCatalog).filter(ApplicationCatalog.command == command).one()
             return application
         except Exception as e:
-            log.debug('ApplicationCatalog.get_application_by_command failed with {0}'.format(e))
+            log.debug('ApplicationCatalog.get_by_command failed with {0}'.format(e))
             raise
+
+    def get_applications(request):
+        try:
+            applications = request.dbsession.query(ApplicationCatalog).all()
+            return applications
+        except Exception as e:
+            log.debug('ApplicationCatalog.get_applications failed with {0}'.format(e))
+            raise
+
+    def reprJSON(self):
+        try:
+            return dict(application_catalog_id=self.id, command=self.command, data_template=self.data_template) 
+        except AttributeError:
+            return dict()
+
+
+
 
         
 
