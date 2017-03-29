@@ -1,5 +1,10 @@
 from cornice import Service, resource
 
+from pyramid.httpexceptions import (
+    HTTPCreated,
+    HTTPNoContent
+    )
+
 from goatfs_api.models import (
         Extension,
         Group,
@@ -37,12 +42,16 @@ def get_route(request):
     return route_json
 
 @route.put()
-def put_route(request):
+def update_route(request):
     user = request.user
     log.debug('User in ROUTE-post: {0}'.format(user.user_name))
     route_json = request.json_body
     log.debug(route_json)
     route = Route.get_route_by_id(request, route_json['id'])
+
+    for sequence_id in route_json['removedSequences']:
+        Sequence.delete_by_id(request, sequence_id)
+
     for sequence_json in route_json['sequences']:
         sequence = Sequence.add_change_sequence_from_json(request, route, sequence_json)
         try:
@@ -53,8 +62,10 @@ def put_route(request):
             log.debug('Error delete action {0} in sequence {1}, {2}'.format( \
                 sequence.action.id, sequence.id, e))
             raise
+        
+    response = HTTPNoContent()
 
     #TODO: Return update sequences/actions with id's and all 
     #      so we can update our react-state
 
-    return {'Status':'OK'}
+    return response 

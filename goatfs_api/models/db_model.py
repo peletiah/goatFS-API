@@ -390,15 +390,15 @@ class Sequence(Base):
         self.sequence = sequence
         self.timeout = timeout
 
-    def get_sequence_by_id(request, id):
+    def get_by_id(request, sequence_id):
         try:
-            sequence = request.dbsession.query(Sequence).filter(Sequence.id==id).one()
+            sequence = request.dbsession.query(Sequence).filter(Sequence.id==sequence_id).one()
             return sequence 
         except orm_exc.NoResultFound:
-            log.info('Sequence.get_by_id couldn\' find given id {0}'.format(id))
+            log.info('Sequence.get_by_id couldn\' find record for sequence_id {0}'.format(sequence_id))
             return None
         except Exception as e:
-            log.debug('Error retrieving sequence by id for sequence_id {0}, {1}'.format(id, e))
+            log.debug('Error retrieving sequence by id for sequence_id {0}, {1}'.format(sequence_id, e))
             raise
 
     def reprJSON(self):
@@ -407,8 +407,6 @@ class Sequence(Base):
         except AttributeError:
             return dict()
 
-
-
     def add_change_sequence_from_json(request, route, sequence_json):
         if 'timeout' not in sequence_json:
             timeout = None
@@ -416,8 +414,8 @@ class Sequence(Base):
             timeout = sequence_json['timeout']
         sequence_id = sequence_json['sequence_id']
         if sequence_json['sequence_id'] != -1 and \
-           Sequence.get_sequence_by_id(request, sequence_id) != None:
-            sequence = Sequence.get_sequence_by_id(request, sequence_json['sequence_id'])
+           Sequence.get_by_id(request, sequence_id) != None:
+            sequence = Sequence.get_by_id(request, sequence_json['sequence_id'])
             sequence.route_id = route.id
             sequence.sequence = sequence_json['sequence']
             sequence.timeout = sequence_json['timeout']
@@ -426,6 +424,20 @@ class Sequence(Base):
         request.dbsession.add(sequence)
         request.dbsession.flush()
         return sequence
+
+    def delete_by_id(request, sequence_id):
+        try:
+            sequence = Sequence.get_by_id(request, sequence_id)
+            if sequence:
+                request.dbsession.delete(sequence)
+                request.dbsession.flush()
+                return True
+            else:
+                log.info('Error deleting sequence_id {0}, this sequence does not appear to exist'.format(sequence_id))
+                return False
+        except Exception as e:
+            log.debug('Error retrieving sequence by id for sequence_id {0}, {1}'.format(sequence_id, e))
+            raise
 
 
 
@@ -451,6 +463,7 @@ class Action(Base):
         self.application_id = application_id
         self.active = active
 
+
     def reprJSON(self):
         if self.active == True:
             command = self.application_catalog.reprJSON()
@@ -472,6 +485,17 @@ class Action(Base):
                     pass
 
             return dict(cmdData=cmdData, command=command)
+
+    def get_by_id(request, action_id):
+        try:
+            action = request.dbsession.query(Action).filter(Action.id==action_id).one()
+            return sequence 
+        except orm_exc.NoResultFound:
+            log.info('Action.get_by_id couldn\' find record for action_id {0}'.format(action_id))
+            return None
+        except Exception as e:
+            log.debug('Error retrieving action by id for action_id {0}, {1}'.format(action_id, e))
+            raise
 
     def add_action_from_json(request, sequence, sequence_json):
         command = sequence_json['command']
@@ -495,7 +519,7 @@ class Action(Base):
         else:
             action_application = ActionApplication(action.id, cmdData)
             request.dbsession.add(action_application)
-
+            request.dbsession.flush()
         return action
 
     def add_bridge_targets(request, action, target):
@@ -505,10 +529,28 @@ class Action(Base):
             if extension != None:
                 actionbridge = ActionBridgeUser( target['extension_id'], action.id )
                 request.dbsession.add(actionbridge)
+                request.dbsession.flush()
             #TODO Distinguish between User and Extension
         elif target['type'] == 'endpoint':
             actionbridge = ActionBridgeEndpoint(action.id, target['target'])
             request.dbsession.add(actionbridge)
+            request.dbsession.flush()
+
+    def delete_by_id(request, action_id):
+        try:
+            action = Action.get_by_id(request, action_id)
+            if action:
+                request.dbsession.delete(action)
+                request.dbsession.flush()
+                return True
+            else:
+                log.info('Error deleting action_id {0}, this action does not appear to exist, {1}'.format(action_id))
+                return False
+        except Exception as e:
+            log.debug('Error retrieving action by id for action_id {0}, {1}'.format(action_id, e))
+            raise
+
+
 
 
 class ActionApplication(Base):
