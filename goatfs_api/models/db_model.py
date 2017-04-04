@@ -359,6 +359,12 @@ class Route(Resource):
         route = {"id":self.id, "sequences" : [sequence.reprJSON() for sequence in self.sequences if sequence.reprJSON()]}
         return route
 
+    def createJSON(self, sequences):
+        route = {"id":self.id, "sequences" : sequences}
+        return route
+
+
+
     def get_route_by_id(request, id):
         try:
             route = request.dbsession.query(Route).filter(Route.id==id).one()
@@ -407,20 +413,21 @@ class Sequence(Base):
         except AttributeError:
             return dict()
 
-    def add_change_sequence_from_json(request, route, sequence_json):
+    def createJSON(self, action):
+        try:
+            return dict(action.reprJSON(), sequence_id=self.id, sequence=self.sequence, timeout=self.timeout) 
+        except AttributeError:
+            return dict()
+
+
+
+    def add_sequence_from_json(request, route, sequence_json):
         if 'timeout' not in sequence_json:
             timeout = None
         else:
             timeout = sequence_json['timeout']
         sequence_id = sequence_json['sequence_id']
-        if sequence_json['sequence_id'] != -1 and \
-           Sequence.get_by_id(request, sequence_id) != None:
-            sequence = Sequence.get_by_id(request, sequence_json['sequence_id'])
-            sequence.route_id = route.id
-            sequence.sequence = sequence_json['sequence']
-            sequence.timeout = sequence_json['timeout']
-        else:
-            sequence = Sequence(route.id, sequence_json['sequence'], timeout)
+        sequence = Sequence(route.id, sequence_json['sequence'], timeout)
         request.dbsession.add(sequence)
         request.dbsession.flush()
         return sequence
@@ -511,7 +518,6 @@ class Action(Base):
         action = Action(sequence.id, application.id, True)
         request.dbsession.add(action)
         request.dbsession.flush()
-        log.debug('ACTION ID IS {0}'.format(action.id))
 
         if command['command'] == 'bridge':
             for target in cmdData:

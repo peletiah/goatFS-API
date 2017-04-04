@@ -32,6 +32,7 @@ def get_route(request):
     route_id = int(request.matchdict['id'])
     route = Route.get_route_by_id(request, route_id)
     log.debug('Route found {0}'.format(route.id))
+    #TODO group_id depends on domain
     group = Group.get_group_by_id(request, 3)
     extensions = [extension.reprJSON() for extension in group.extensions]
     route_json = route.reprJSON()
@@ -48,12 +49,15 @@ def update_route(request):
     route_json = request.json_body
     log.debug(route_json)
     route = Route.get_route_by_id(request, route_json['id'])
+    if route.sequences:
+        # delete all old sequences
+        for sequence in route.sequences:
+            request.dbsession.delete(sequence)
 
-    for sequence_id in route_json['removedSequences']:
-        Sequence.delete_by_id(request, sequence_id)
-
+    # create fresh sequences based on JSON from client
+    sequences = list()
     for sequence_json in route_json['sequences']:
-        sequence = Sequence.add_change_sequence_from_json(request, route, sequence_json)
+        sequence = Sequence.add_sequence_from_json(request, route, sequence_json)
         try:
             if sequence.action:
                 request.dbsession.delete(sequence.action)
@@ -62,10 +66,6 @@ def update_route(request):
             log.debug('Error delete action {0} in sequence {1}, {2}'.format( \
                 sequence.action.id, sequence.id, e))
             raise
-        
-    response = HTTPNoContent()
+        sequences.append(sequence.createJSON(action))
+    return route.createJSON(sequences)
 
-    #TODO: Return update sequences/actions with id's and all 
-    #      so we can update our react-state
-
-    return response 
