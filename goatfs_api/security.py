@@ -101,9 +101,13 @@ class RouteResourceFactory(object):
     def __init__(self, request):
         self.__acl__ = []
         route_id = request.matchdict.get("id")
-        route = Route.get_route_by_id(request, route_id)
-
-        self.resource = Resource.by_resource_id(route.resource_id, db_session=request.dbsession)
+        log.debug('PATH {0}'.format(request.path))
+        if route_id:
+            route = Route.get_route_by_id(request, route_id)
+            self.resource = Resource.by_resource_id(route.resource_id, db_session=request.dbsession)
+        else:
+            #TODO could this be merged with ResourceFactory?
+            self.resource = Resource.by_resource_name(request.path, db_session=request.dbsession)
 
         #if not rid:
         #    raise HTTPBadRequest()

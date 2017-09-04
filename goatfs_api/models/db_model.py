@@ -363,7 +363,13 @@ class Route(Resource):
         route = {"id":self.id, "sequences" : sequences}
         return route
 
-
+    def get_routes(request):
+        try:
+            routes = request.dbsession.query(Route).all()
+            return routes
+        except Exception as e:
+            log.debug('Error retrieving routes, {0}'.format(e))
+            raise
 
     def get_route_by_id(request, id):
         try:
